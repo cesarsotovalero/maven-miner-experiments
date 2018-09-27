@@ -1,0 +1,269 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+
+library("dplyr")
+library("tidyr")
+library("ggplot2")
+library("stringr")
+library("igraph")
+library("poweRlaw")
+library("wesanderson")
+library("xtable")
+theme_set(theme_bw())
+
+```
+
+
+```{r}
+
+links_all <- read.csv("links_all.csv")
+page_rank <- read.csv("pagerank_all.csv")
+louvain <- read.csv("louvain_all.csv")
+betweenness_centrality <- read.csv("betweenness_centrality_all.csv")
+harmonic_centrality <- read.csv("harmonic_centrality_all.csv")
+label_propagation <- read.csv("label_propagation.csv")
+dep_count_all <- read.csv("dep_count_all.csv")
+union_find <- read.csv("union_find.csv")
+trans_usages <- read.csv("trans_usages.csv")
+
+a <- dplyr::inner_join(page_rank, louvain, by = "artifact")
+b <- dplyr::inner_join(a, betweenness_centrality, by = "artifact")
+c <- dplyr::inner_join(b, harmonic_centrality, by = "artifact")
+d <- dplyr::inner_join(c, label_propagation, by = "artifact")
+e <- dplyr::inner_join(d, dep_count_all, by = "artifact")
+f <- dplyr::inner_join(e, union_find, by = "artifact")
+g <- dplyr::full_join(f, trans_usages, by = "artifact")
+
+final_join <- g
+
+data <- cbind(as.data.frame(stringr::str_split_fixed(final_join$artifact, ":", 3)), 
+              final_join$page_rank, 
+              final_join$depends,
+              final_join$dependes,
+              final_join$release,
+              final_join$community, 
+              final_join$betweenness_centrality, 
+              final_join$hcentrality,
+              final_join$union_find,
+              final_join$trans_usages
+              )
+
+data$`final_join$trans_usages` <- data$`final_join$trans_usages` %>% replace_na(0)
+data$`final_join$release` <- as.Date(format(as.Date(str_sub(data$`final_join$release`, 1, 10)),'%Y-%m-%d'), '%Y-%m-%d')
+
+View(data)
+summary(data)
+
+data <- data %>% dplyr::rename(
+  GroupId = V1,
+  ArtifactId = V2,
+  Version = V3,
+  Release = `final_join$release`,
+  PageRank = `final_join$page_rank`,
+  Dependencies = `final_join$depends`,
+  DUsages = `final_join$dependes`,
+  TUsages = `final_join$trans_usages`,
+  Louvain = `final_join$community`,
+  BetwCentrality = `final_join$betweenness_centrality`,
+  HarmCentrality = `final_join$hcentrality`,
+  UnionFind = `final_join$union_find`
+  )
+
+```
+
+
+```{r}
+data$UnionFind <- as.factor(data$UnionFind )
+summary(data$UnionFind )
+
+```
+
+
+```{r}
+
+data %>% ggplot(aes(Release)) +
+  geom_density() +
+  xlab("release date")
+
+```
+
+# Degree distribution
+
+```{r}
+G.degrees <- data$DUsages
+
+
+# Let's count the frequencies of each degree
+G.degree.histogram <- as.data.frame(table(G.degrees))
+
+# Need to convert the first column to numbers, otherwise
+# the log-log thing will not work (that's fair...)
+G.degree.histogram[,1] <- as.numeric(G.degree.histogram[,1])
+
+# Now, plot it!
+ggplot(G.degree.histogram, aes(x = G.degrees, y = Freq)) +
+  # geom_step() +
+  geom_line() +
+  # artifacts with this number of dependencies
+  scale_x_continuous("Degree",
+                     trans = "log10") +
+  # how many of them
+  scale_y_continuous("Frequency ()",
+                     trans = "log10") 
+
+occur = as.vector(table(data$DUsages))
+occur = occur/sum(occur)
+p = occur/sum(occur)
+y = rev(cumsum(rev(p)))
+x = as.numeric(names(table(data$DUsages)))
+plot(x, y, log="y", type="l", xlab = "Degree", ylab = "Fraction")
+
+occur = as.vector(table(data$TUsages))
+occur = occur/sum(occur)
+p = occur/sum(occur)
+y = rev(cumsum(rev(p)))
+x = as.numeric(names(table(data$TUsages)))
+plot(x, y, log="y", type="l", xlab = "Degree", ylab = "Fraction")
+
+```
+
+# Complementary Cumulative Distribution Function (CCDF)
+
+```{r}
+summary(data)
+
+data %>% ggplot(aes(x=season, y=o3))
+g+geom_boxplot(fill="darkseagreen4")
+
+```
+
+```{r}
+
+# Page Rank Table
+table_pagerank <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, PageRank) %>% slice(1:10)
+print(xtable(table_pagerank, type = "latex"), file = "table_pagerank.tex")
+# Betweenness Centrality Table
+table_betw <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, BetwCentrality) %>% arrange(desc(BetwCentrality)) %>% slice(1:10)
+print(xtable(table_betw, type = "latex"), file = "table_betw.tex")
+# Harmonic Centrality Table
+table_harm <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, HarmCentrality) %>% arrange(desc(HarmCentrality)) %>% slice(1:10)
+print(xtable(table_harm, type = "latex"), file = "table_harm.tex")
+
+```
+
+```{r}
+
+data %>% 
+  select(GroupId, Release, PageRank, Version) %>%
+  filter(GroupId %in% c("org.slf4j", "commons-logging", "asm", "junit", "antlr")) %>% 
+  ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) + 
+  geom_line() +
+  geom_point(size = 2) +
+  geom_text(aes(label=ifelse(PageRank>5,as.character(Version),'')),hjust=0,vjust=0,show.legend = FALSE) +
+  xlab("Release Date") +
+  theme(legend.position="top") +
+  scale_fill_manual(values=wes_palette(n=3, name="GrandBudapest1")) +
+  theme(legend.title=element_blank())
+
+```
+
+```{r}
+
+datatmp <- data %>% 
+  mutate(Artifact = paste(as.character(GroupId), as.character(ArtifactId), as.character(Version), sep=":")) %>% 
+  group_by(Artifact) %>% 
+  summarise(TUsages= sum(TUsages)) %>%
+  arrange(desc(TUsages)) %>%
+  slice(1:10) 
+
+datatmp$Artifact <- factor(datatmp$Artifact, levels = datatmp$Artifact[order(datatmp$TUsages)])
+datatmp %>%
+  ggplot(aes(x=Artifact, y=TUsages)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Artifact, 
+                   xend=Artifact, 
+                   y=0, 
+                   yend=TUsages)) +
+  coord_flip() +
+    ylab("Transitive Usages") +
+  xlab("")
+
+datatmp <- data %>% 
+  mutate(Artifact = paste(as.character(GroupId), as.character(ArtifactId), as.character(Version), sep=":")) %>% 
+  group_by(Artifact) %>% 
+  summarise(DUsages= sum(DUsages)) %>%
+  arrange(desc(DUsages)) %>%
+  slice(1:10) 
+
+datatmp$Artifact <- factor(datatmp$Artifact, levels = datatmp$Artifact[order(datatmp$DUsages)])
+datatmp %>%
+  ggplot(aes(x=Artifact, y=DUsages)) + 
+  geom_point(size=3) + 
+  geom_segment(aes(x=Artifact, 
+                   xend=Artifact, 
+                   y=0, 
+                   yend=DUsages)) +
+  coord_flip() +
+    ylab("Direct Usages") +
+  xlab("")
+
+```
+
+```{r}
+data %>% select(GroupId, Release, PageRank, Version) %>% 
+  filter(GroupId %in% c("org.slf4j", "commons-logging", "asm", "junit", "antlr")) %>% 
+  ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) + 
+  geom_line() +
+  geom_point(size = 2) +
+  geom_text(aes(label=ifelse(PageRank>5,as.character(Version),'')),hjust=0,vjust=0,show.legend = FALSE) +
+  xlab("Release Date") +
+  theme(legend.position="top") +
+  scale_color_manual(values=wes_palette(n=5, name="GrandBudapest1")) +
+  theme(legend.title=element_blank())
+
+```
+
+```{r}
+
+data$GroupId <- as.character(data$GroupId)
+datatmp <- data %>% 
+  filter(grepl("^commons", GroupId)) %>% 
+  filter(GroupId %in% c("commons-logging", "commons-io", "commons-codec", "commons-collections", "commons-lang"))
+
+
+# Page Rank
+datatmp %>% 
+  ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) + 
+  geom_line() +
+  geom_point(size = 2) +
+  geom_text(aes(label=ifelse(PageRank>5,as.character(Version),'')),hjust=0,vjust=0,show.legend = FALSE) +
+  xlab("Release Date") +
+  theme(legend.position="right") +
+  scale_fill_brewer(palette="Dark2") + 
+  ylab("PR")  + 
+  scale_fill_manual("legend_title")
+
+```
+
+```{r}
+
+# Union Find
+data$UnionFind <- as.factor(data$UnionFind)
+summary(data$UnionFind)
+
+
+datatmp <- data %>% group_by(UnionFind) %>%
+  summarise(no_artifacts = length(UnionFind))
+
+datatmp$no_rows <- as.factor(datatmp$no_artifacts)
+datatmp <- datatmp %>% group_by(no_artifacts) %>%
+  summarise(clusters = length(no_artifacts)) %>% 
+  arrange(desc(no_artifacts))
+
+print(xtable(datatmp, type = "latex"), file = "table_union_find.tex")
+
+```
