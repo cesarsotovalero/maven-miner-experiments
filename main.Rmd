@@ -3,11 +3,11 @@ title: "R Notebook"
 output: html_notebook
 ---
 
+# Load packages
+
 ```{r}
 
-library("dplyr")
-library("tidyr")
-library("ggplot2")
+library("tidyverse")
 library("stringr")
 library("igraph")
 library("poweRlaw")
@@ -17,71 +17,123 @@ theme_set(theme_bw())
 
 ```
 
+# Read data
 
 ```{r}
 
-links_all <- read.csv("links_all.csv")
-page_rank <- read.csv("pagerank_all.csv")
-louvain <- read.csv("louvain_all.csv")
-betweenness_centrality <- read.csv("betweenness_centrality_all.csv")
-harmonic_centrality <- read.csv("harmonic_centrality_all.csv")
-label_propagation <- read.csv("label_propagation.csv")
-dep_count_all <- read.csv("dep_count_all.csv")
-union_find <- read.csv("union_find.csv")
-trans_usages <- read.csv("trans_usages.csv")
+# // artifact -> release date 
+# CALL apoc.export.csv.query("MATCH (artifact:Artifact) RETURN artifact.coordinates as artifact, artifact.release_date as release", "/home/cesarsv/Desktop/release_all.csv", {})
+release_all <- read.csv("Dataset1Percent/release_all.csv")
 
-a <- dplyr::inner_join(page_rank, louvain, by = "artifact")
-b <- dplyr::inner_join(a, betweenness_centrality, by = "artifact")
-c <- dplyr::inner_join(b, harmonic_centrality, by = "artifact")
-d <- dplyr::inner_join(c, label_propagation, by = "artifact")
-e <- dplyr::inner_join(d, dep_count_all, by = "artifact")
-f <- dplyr::inner_join(e, union_find, by = "artifact")
+# // artifactX -> artifactY
+# CALL apoc.export.csv.query("MATCH (artifactX:Artifact) - [depends:DEPENDS_ON] -> (artifactY:Artifact) RETURN artifactX.coordinates AS x, artifactY.coordinates AS y", "/home/cesarsv/Desktop/links_all.csv", {})
+links_all <- read.csv("Dataset1Percent/links_all.csv")
+
+# // pagerank score for each node in the graph
+# CALL apoc.export.csv.query("CALL algo.pageRank.stream('Artifact', 'DEPENDS_ON', {iterations:20, dampingFactor:0.85}) YIELD nodeId, score MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates AS artifact, score AS page_rank ORDER BY score DESC", "/home/cesarsv/Desktop/pagerank_all.csv", {})
+page_rank <- read.csv("Dataset1Percent/pagerank_all.csv")
+
+# // louvain all
+# CALL apoc.export.csv.query("CALL algo.louvain.stream('Artifact', 'DEPENDS_ON', {}) YIELD nodeId, community MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates AS artifact, community", "/home/cesarsv/Desktop/louvain_all.csv", {})
+louvain <- read.csv("Dataset1Percent/louvain_all.csv")
+
+# // betweenness centrality all
+# CALL apoc.export.csv.query("CALL algo.betweenness.stream('Artifact','DEPENDS_ON',{direction:'out'}) YIELD nodeId, centrality MATCH (user:Artifact) WHERE id(user) = nodeId RETURN user.coordinates AS artifact, centrality AS betweenness_centrality ORDER BY centrality DESC","/home/cesarsv/Desktop/betweenness_centrality_all.csv", {})
+betweenness_centrality <- read.csv("Dataset1Percent/betweenness_centrality_all.csv")
+
+# // harmonic centrality all
+# CALL apoc.export.csv.query("CALL algo.closeness.harmonic.stream('Artifact', 'DEPENDS_ON') YIELD nodeId, centrality MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates as artifact, centrality AS harmonic_centrality ORDER BY centrality DESC","/home/cesarsv/Desktop/harmonic_centrality_all.csv", {})
+harmonic_centrality <- read.csv("Dataset1Percent/harmonic_centrality_all.csv") 
+
+# // label propagation all
+# CALL apoc.export.csv.query("CALL algo.labelPropagation.stream('Artifact', 'DEPENDS_ON', {direction: "OUTGOING", iterations: 10}) YIELD nodeId, label MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates as artifact, label","/home/cesarsv/Desktop/label_propagation.csv", {})
+label_propagation <- read.csv("Dataset1Percent/label_propagation.csv")
+
+# // union find all
+# CALL apoc.export.csv.query("CALL algo.unionFind.stream('Artifact', 'DEPENDS_ON', {}) YIELD nodeId, setId MATCH (artifact:Artifact) WHERE id(artifact) = nodeId RETURN artifact.coordinates AS artifact, setId AS union_find","/home/cesarsv/Desktop/union_find.csv", {})
+union_find <- read.csv("Dataset1Percent/union_find.csv")
+
+# // direct usages
+# CALL apoc.export.csv.query("MATCH (n)-[r:DEPENDS_ON]->(artifact) RETURN artifact.coordinates AS artifact, count(n) as direct_usages ORDER BY direct_usages DESC","/home/cesarsv/Desktop/direct_usages.csv", {})
+direct_usages <- read.csv("Dataset1Percent/direct_usages.csv")
+
+# // direct dependencies
+# CALL apoc.export.csv.query("MATCH (n)<-[r:DEPENDS_ON]-(artifact) RETURN artifact.coordinates AS artifact, count(r) as direct_dependencies ORDER BY direct_dependencies DESC","/home/cesarsv/Desktop/direct_dependencies.csv", {})
+direct_dependencies <- read.csv("Dataset1Percent/direct_dependencies.csv")
+
+# // transitive usages all
+# CALL apoc.export.csv.query("MATCH (artifactX:Artifact)<-[*..10000]-(artifactY:Artifact) RETURN artifactX.coordinates AS artifact, count(artifactY) as transitive_usages ORDER BY transitive_usages DESC","/home/cesarsv/Desktop/trans_usages.csv", {})
+trans_usages <- read.csv("Dataset1Percent/trans_usages.csv")
+
+```
+
+# Process data
+
+```{r}
+# merge the data
+a <- dplyr::full_join(page_rank, louvain, by = "artifact")
+b <- dplyr::full_join(a, betweenness_centrality, by = "artifact")
+c <- dplyr::full_join(b, harmonic_centrality, by = "artifact")
+d <- dplyr::full_join(c, label_propagation, by = "artifact")
+e <- dplyr::full_join(d, direct_usages, by = "artifact")
+f <- dplyr::full_join(e, union_find, by = "artifact")
 g <- dplyr::full_join(f, trans_usages, by = "artifact")
+h <- dplyr::full_join(g, direct_dependencies, by = "artifact")
+i <- dplyr::full_join(h, release_all, by = "artifact")
 
-final_join <- g
+# replace NAs
+i$direct_usages <- i$direct_usages %>% replace_na(0)
+i$transitive_usages <- i$transitive_usages %>% replace_na(0)
+i$direct_dependencies <- i$direct_dependencies %>% replace_na(0)
 
+final_join <- i
+
+# split artifact into GroupId, ArtifactId and Version
 data <- cbind(as.data.frame(stringr::str_split_fixed(final_join$artifact, ":", 3)), 
               final_join$page_rank, 
-              final_join$depends,
-              final_join$dependes,
-              final_join$release,
-              final_join$community, 
-              final_join$betweenness_centrality, 
-              final_join$hcentrality,
+              final_join$community,
+              final_join$betweenness_centrality,
+              final_join$harmonic_centrality,
+              final_join$label, 
+              final_join$direct_usages, 
               final_join$union_find,
-              final_join$trans_usages
+              final_join$transitive_usages,
+              final_join$direct_dependencies,
+              final_join$release
               )
 
-data$`final_join$trans_usages` <- data$`final_join$trans_usages` %>% replace_na(0)
+# type cast release to Date 
 data$`final_join$release` <- as.Date(format(as.Date(str_sub(data$`final_join$release`, 1, 10)),'%Y-%m-%d'), '%Y-%m-%d')
 
-View(data)
-summary(data)
-
+# rename columns
 data <- data %>% dplyr::rename(
   GroupId = V1,
   ArtifactId = V2,
   Version = V3,
   Release = `final_join$release`,
   PageRank = `final_join$page_rank`,
-  Dependencies = `final_join$depends`,
-  DUsages = `final_join$dependes`,
-  TUsages = `final_join$trans_usages`,
+  Dependencies = `final_join$direct_dependencies`,
+  DUsages = `final_join$direct_usages`,
+  TUsages = `final_join$transitive_usages`,
   Louvain = `final_join$community`,
   BetwCentrality = `final_join$betweenness_centrality`,
-  HarmCentrality = `final_join$hcentrality`,
-  UnionFind = `final_join$union_find`
+  HarmCentrality = `final_join$harmonic_centrality`,
+  UnionFind = `final_join$union_find`,
+  LabelProp = `final_join$label`
   )
 
-```
-
-
-```{r}
+# cluster variables to factors
 data$UnionFind <- as.factor(data$UnionFind )
-summary(data$UnionFind )
+summary(data$UnionFind)
+
+# see the data
+View(data)
+dim(data)
 
 ```
 
+
+# Data visualization
 
 ```{r}
 
@@ -95,7 +147,6 @@ data %>% ggplot(aes(Release)) +
 
 ```{r}
 G.degrees <- data$DUsages
-
 
 # Let's count the frequencies of each degree
 G.degree.histogram <- as.data.frame(table(G.degrees))
@@ -131,29 +182,23 @@ plot(x, y, log="y", type="l", xlab = "Degree", ylab = "Fraction")
 
 ```
 
-# Complementary Cumulative Distribution Function (CCDF)
-
-```{r}
-summary(data)
-
-data %>% ggplot(aes(x=season, y=o3))
-g+geom_boxplot(fill="darkseagreen4")
-
-```
+# Clustering algorithms
 
 ```{r}
 
 # Page Rank Table
 table_pagerank <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, PageRank) %>% slice(1:10)
-print(xtable(table_pagerank, type = "latex"), file = "table_pagerank.tex")
+print(xtable(table_pagerank, type = "latex"), file = "TexTables/table_pagerank.tex")
 # Betweenness Centrality Table
 table_betw <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, BetwCentrality) %>% arrange(desc(BetwCentrality)) %>% slice(1:10)
-print(xtable(table_betw, type = "latex"), file = "table_betw.tex")
+print(xtable(table_betw, type = "latex"), file = "TexTables/table_betw.tex")
 # Harmonic Centrality Table
 table_harm <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, HarmCentrality) %>% arrange(desc(HarmCentrality)) %>% slice(1:10)
-print(xtable(table_harm, type = "latex"), file = "table_harm.tex")
+print(xtable(table_harm, type = "latex"), file = "TexTables/table_harm.tex")
 
 ```
+
+# Projects' evolution
 
 ```{r}
 
@@ -170,6 +215,9 @@ data %>%
   theme(legend.title=element_blank())
 
 ```
+
+
+# Projects' usage
 
 ```{r}
 
@@ -214,16 +262,22 @@ datatmp %>%
 ```
 
 ```{r}
-data %>% select(GroupId, Release, PageRank, Version) %>% 
-  filter(GroupId %in% c("org.slf4j", "commons-logging", "asm", "junit", "antlr")) %>% 
-  ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) + 
+data %>% 
+  select(GroupId, Release, PageRank, Version) %>%
+  filter(GroupId %in% c("org.slf4j", "commons-logging", "asm", "junit", "antlr")) %>%
+  ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) +
   geom_line() +
   geom_point(size = 2) +
-  geom_text(aes(label=ifelse(PageRank>5,as.character(Version),'')),hjust=0,vjust=0,show.legend = FALSE) +
+  geom_text(
+    aes(label = ifelse(PageRank > 5, as.character(Version), '')),
+    hjust = 0,
+    vjust = 0,
+    show.legend = FALSE
+  ) +
   xlab("Release Date") +
-  theme(legend.position="top") +
-  scale_color_manual(values=wes_palette(n=5, name="GrandBudapest1")) +
-  theme(legend.title=element_blank())
+  theme(legend.position = "top") +
+  # scale_color_manual(values = wes_palette(n = 5, name = "GrandBudapest1")) +
+  theme(legend.title = element_blank())
 
 ```
 
@@ -249,6 +303,9 @@ datatmp %>%
 
 ```
 
+
+# Union Find
+
 ```{r}
 
 # Union Find
@@ -264,6 +321,6 @@ datatmp <- datatmp %>% group_by(no_artifacts) %>%
   summarise(clusters = length(no_artifacts)) %>% 
   arrange(desc(no_artifacts))
 
-print(xtable(datatmp, type = "latex"), file = "table_union_find.tex")
+print(xtable(datatmp, type = "latex"), file = "TexTables/table_union_find.tex")
 
 ```
