@@ -11,7 +11,7 @@ This repository contains a set of Cypher and R scripts performing and plotting s
 
 In order to download data, we kindly invite you to visit the (Maven-miner)[https://github.com/diverse-project/maven-miner]  project and follow the instructions.
 
-### Querying analysis data
+### Querying analysis data
 
 This step assumes that you already installed Neo4j and played a litte bit the Maven Dependency Graph.
 
@@ -33,6 +33,6 @@ sed -e "s#%PATH%#$PATH_CSV#g" $CURR/test.cypher | bin/cypher-shell --format -u $
 
 :fire: The script may take up 24h to finish!
 
-### Plotting analysis data
+### Plotting analysis data
 
 @César Could you please add some instructions on how to use the R project you provided when you have time?!
