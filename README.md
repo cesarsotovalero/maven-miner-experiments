@@ -32,5 +32,7 @@ sed -e "s#%PATH%#$PATH_CSV#g" $CURR/test.cypher | bin/cypher-shell --format -u $
 ```
 
 :fire: The script may take up 24h to finish!
+
 ### Plotting analysis data
+
 @César Could you please add some instructions on how to use the R project you provided when you have time?!
