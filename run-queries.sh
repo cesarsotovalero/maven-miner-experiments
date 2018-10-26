@@ -35,4 +35,4 @@ if [ -z "$PATH_CSV" ] || [ -z "$NEO4J" ]; then
 fi
 
 cd $NEO4J
-sed -e "s#%PATH%#$PATH_CSV#g" $CURR/test.cypher | bin/cypher-shell --format plain
+sed -e "s#%PATH%#$PATH_CSV#g" $CURR/queries.cypher | bin/cypher-shell --format plain
