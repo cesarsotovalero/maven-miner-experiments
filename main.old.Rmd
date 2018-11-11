@@ -1,21 +1,18 @@
 ---
-title: 'Maven Central Analysis: overview '
+title: "Maven Central Analysis: overview "
 output:
   html_document:
     df_print: paged
-  pdf_document: default
 ---
-In this R Notebook, we list the required steps to reproduce the analysis performed on the Maven dependency graph collected using [Maven-miner](https://github.com/diverse-project/maven-miner) project.
+In this R Notebook, we list the required steps top reproduce the analysis performed on the Maven dependency graph collected using [Maven-miner](https://github.com/diverse-project/maven-miner) project.
 The graph database together the results of our analysis queries will be provided very soon.
 
 In case the required packages are installed, you can skip the next code section.
 # Installing missing packages
 
 ```{r}
-#install.packages('units')
-#if("ggforce" %in% rownames(installed.packages()) == FALSE) { #install.packages('ggforce') }
-#install.packages("igraph")
-#install.packages("randomcoloR")
+if("dplyr" %in% rownames(installed.packages()) == FALSE) { install.packages("dplyr") }
+
 #install.packages("dplyr", dependencies = TRUE)
 #install.packages("tidyverse", dependencies=TRUE)
 #install.packages("stringr", dependencies=TRUE)
@@ -23,14 +20,12 @@ In case the required packages are installed, you can skip the next code section.
 #install.packages("poweRlaw", dependencies=TRUE)
 #install.packages("wesanderson", dependencies=TRUE)
 #install.packages("xtable", dependencies=TRUE)
-
-
 ```
 We first start by loading the required packages. Later we read the data from CSV.
 
 # Loading packages
 ```{r}
-library(igraph)
+
 library(tidyr)
 library(dplyr)
 library(stringr)
@@ -39,15 +34,13 @@ library(poweRlaw)
 library(wesanderson)
 library(xtable)
 library(ggplot2)
-library(ggforce)
-library(randomcoloR)
 theme_set(theme_bw())
 
 ```
 
 # Data Prepation
 If you are not interested in reconstructing 
-In this section, we give a brief explanation of the data files content and describe the Cypher queries we used to extract data.
+In this section, we give a brief explanation of the data files content, and describe the Cypher queries  we used to extract data.
 
 :warning: Before kicking off, we need to set up the path where the downloaded data is located. To do so, in the following snippet, replace variable **$path** with the actual path. For instance *path =/home/user/maven-miner-data*.
 
@@ -106,9 +99,66 @@ louvain_all_path <- paste(path, "louvain_all.csv", sep="/")
 louvain <- read.csv(louvain_all_path)
 
 ```
+##  Centrality algorithm
+### Betweeness centrality
+The file *betweenness_centrality.csv* contains the page centrality score of every artifact. 
+Artifacts are identified using the GAV representation (Group:Artifact:Version).
 
+We use the following Cypher query to run the Betweeness centrality algorithm:
+
+```
+CALL apoc.export.csv.query("CALL algo.betweenness.stream('Artifact','DEPENDS_ON',{direction:'out'}) YIELD nodeId, centrality MATCH (user:Artifact) WHERE id(user) = nodeId RETURN user.coordinates AS artifact, centrality AS betweenness_centrality ORDER BY centrality DESC","/path/to/betweenness_centrality_all.csv", {});
+```
+
+```{r}
+# // artifact | centrality
+betweenness_centrality_all_path <- paste(path,"betweenness_centrality_all.csv", sep="/")
+betweenness_centrality <- read.csv(betweenness_centrality_all_path)
+```
+### Harmonic centrality
+The file *harmonic_centrality.csv* contains the page centrality score of every artifact. 
+Artifacts are identified using the GAV representation (Group:Artifact:Version).
+
+We use the following Cypher query to run the Harmonic centrality algorithm:
+
+```
+CALL apoc.export.csv.query("CALL algo.closeness.harmonic.stream('Artifact', 'DEPENDS_ON') YIELD nodeId, centrality MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates as artifact, centrality AS harmonic_centrality ORDER BY centrality DESC","%PATH%/harmonic_centrality_all.csv", {});
+```
+```{r}
+# // artifact | harmonic_centrality
+harmonic_centrality_all_path <- paste(path, "harmonic_centrality_all.csv", sep="/")
+harmonic_centrality <- read.csv(harmonic_centrality_all_path)
+```
+### Label propagation algorithm
+The file *label_propagation.csv* contains the page label propagation score of every artifact. 
+Artifacts are identified using the GAV representation (Group:Artifact:Version).
+
+We use the following Cypher query to run the label propagation algorithm:
+
+```
+CALL apoc.export.csv.query("CALL algo.labelPropagation.stream('Artifact', 'DEPENDS_ON', {direction: 'OUTGOING', iterations: 10}) YIELD nodeId, label MATCH (node) WHERE id(node) = nodeId RETURN node.coordinates as artifact, label","/path/to/label_propagation.csv", {});
+```
+```{r}
+# // artifact | label
+label_propagation_path <- paste(path, "label_propagation.csv", sep = "/")
+label_propagation <- read.csv(label_propagation_path)
+```
+### Union find algorithm
+The file *union_find.csv* contains the page Louvain score of every artifact. 
+Artifacts are identified using the GAV representation (Group:Artifact:Version).
+
+We use the following Cypher query to run the union find algorithm:
+
+```
+CALL apoc.export.csv.query("CALL algo.unionFind.stream('Artifact', 'DEPENDS_ON', {}) YIELD nodeId, setId MATCH (artifact:Artifact) WHERE id(artifact) = nodeId RETURN artifact.coordinates AS artifact, setId AS union_find","%PATH%/union_find.csv", {});
+```
+```{r}
+# // artifact | union_find
+union_find_path <- paste(path, "union_find.csv", sep = "/")
+union_find <- read.csv(union_find_path)
+```
 ### Artifacts Direct usages count  
-The file *direct_usages.csv* contains, for every artifact, the number of direct usages count. 
+The file *direct_usages.csv* contains, for every artifact, the number of artifacts using it. 
 Artifacts are identified using the GAV representation (Group:Artifact:Version).
 
 We use the following Cypher query to run the Betweeness centrality algorithm:
@@ -137,33 +187,62 @@ direct_dependencies_path <- paste(path, "direct_dependencies.csv", sep = "/")
 direct_dependencies <- read.csv(direct_dependencies_path)
 ```
 
+### Artifacts transitive usages count 
+
+The file *transitive_usages.csv* contains the page Louvain score of every artifact. 
+Artifacts are identified using the GAV representation (Group:Artifact:Version).
+
+We use the following Cypher query to retrieve the transitive usage count:
+
+```
+CALL apoc.export.csv.query("match (n)<-[r:DEPENDS_ON*]-(m) where (m)<-[:DEPENDS]-() return n.coordinates as artifact, count(distinct m) as transitive_usages","/path/to/trans_usages_all.csv", {});
+```
+```{r}
+# // artifact | 
+trans_usages_path <- paste(path, "direct_dependencies.csv", sep = "/")
+trans_usages <- read.csv(trans_usages_path)
+colnames(trans_usages) <- c("artifact", "trans_usages")
+
+```
+
 ## Data processing & cleaning
 
 We first join all the CSV files into a the same data frame
 ```{r}
 # merge the data
 a <- dplyr::full_join(page_rank, louvain, by = "artifact")
-b <- dplyr::full_join(a, direct_usages, by = "artifact")
-c <- dplyr::full_join(b, direct_dependencies, by = "artifact")
-d <- dplyr::full_join(c, release_all, by = "artifact")
+b <- dplyr::full_join(a, betweenness_centrality, by = "artifact")
+c <- dplyr::full_join(b, harmonic_centrality, by = "artifact")
+d <- dplyr::full_join(c, label_propagation, by = "artifact")
+e <- dplyr::full_join(d, direct_usages, by = "artifact")
+f <- dplyr::full_join(e, union_find, by = "artifact")
+g <- dplyr::full_join(f, trans_usages, by = "artifact")
+h <- dplyr::full_join(g, direct_dependencies, by = "artifact")
+i <- dplyr::full_join(h, release_all, by = "artifact")
 ```
 
 Later, we clean the data by replacing all NA values by Zero (0)
 ```{r}
 # replace NAs
-d$direct_usages <- d$direct_usages %>% replace_na(0)
-d$direct_dependencies <- d$direct_dependencies %>% replace_na(0)
+i$direct_usages <- i$direct_usages %>% replace_na(0)
+i$trans_usages <- i$trans_usages %>% replace_na(0)
+i$direct_dependencies <- i$direct_dependencies %>% replace_na(0)
 ```
 
 
 ```{r}
-final_join <- d
+final_join <- i
 
 # split artifact into GroupId, ArtifactId and Version
 data <- cbind(as.data.frame(stringr::str_split_fixed(final_join$artifact, ":", 3)),
               final_join$page_rank,
               final_join$community,
+              final_join$betweenness_centrality,
+              final_join$harmonic_centrality,
+              final_join$label,
               final_join$direct_usages,
+              final_join$union_find,
+              final_join$trans_usages,
               final_join$direct_dependencies,
               final_join$release
               )
@@ -183,18 +262,33 @@ data <- data %>% dplyr::rename(
   PageRank = `final_join$page_rank`,
   Dependencies = `final_join$direct_dependencies`,
   DUsages = `final_join$direct_usages`,
-  Louvain = `final_join$community`
+  TUsages = `final_join$trans_usages`,
+  Louvain = `final_join$community`,
+  BetwCentrality = `final_join$betweenness_centrality`,
+  HarmCentrality = `final_join$harmonic_centrality`,
+  UnionFind = `final_join$union_find`,
+  LabelProp = `final_join$label`
   )
 
+# cluster variables to factors
+data$UnionFind <- as.factor(data$UnionFind )
+summary(data$UnionFind)
 ```
-Writing the results into a CSV file:
 
 ```{r}
+
+# see the data
+View(data)
+dim(data)
+```
+
+```{r}
+#write to a CSV 2407336
 # path = "/home/amine/maven-miner-stat"
 # write.csv(data, file = "/home/amine/maven-miner-stat/allMetrics.csv")
 ```
 
-## Directly reading the final dataset
+# Directly reading the final dataset
 
 In case you skipped the data preparation phase. This section is for you. 
 You can read the final dataset directly using the following R chunk:
@@ -257,7 +351,7 @@ data %>% ggplot(aes(Release)) +
 
 ```
 ```{r}
-
+# peek 2016-08-10 531020
 table_release <- data %>% select(ArtifactId,Release) %>% arrange(Release) %>% group_by(Release) %>% summarise(count=n()) %>% mutate(sum = cumsum(count)) 
 table_release %>%ggplot(aes(x = Release, y = sum))+
   geom_line() +
@@ -271,11 +365,13 @@ table_release %>%ggplot(aes(x = Release, y = sum))+
 #print(cumsum(1:10))
 ```
 
-## Degree distribution
+# Degree distribution
 In this section, we introduce in a nutshell the maven dependency graph anatomy.
-### out-degree distribution
 
-Before investigating artifacts dependencies, let's first take a quick  look at the different quantile values:
+
+## out-degree distribution
+
+Before investigating artifacts dependencies, let's first take a look at a quick overview of the different quantile values:
 
 ```{r}
 G.out.degree.mean <- mean(data$Dependencies, na.rm=T)
@@ -294,6 +390,20 @@ cat ("\nThere number of elements with no dependencies and only one dependency ar
 ```
 
 ```{r}
+
+# ggplot(G.out.frame, aes(x=data$Dependencies))+
+#     geom_histogram(binwidth=.2, colour="black", fill="white") +
+#     xlab("Dependencies")+
+#     geom_vline(aes(xintercept=G.out.degree.quantiles[1]),   # Ignore NA values for mean
+#                color="red", linetype="dashed", size=1) +
+#     geom_vline(aes(xintercept=G.out.degree.quantiles[2]),   # 
+#                color="blue", linetype="dashed", size=1) +
+#     geom_vline(aes(xintercept=G.out.degree.quantiles[3]),   # 
+#                color="green", linetype="dashed", size=1) +
+#     # scale_x_continuous("Artifacts", trans = "log10") +
+#     scale_y_continuous("Artifacts", trans = "log10" )
+
+
 G.out.degrees <- data$Dependencies    
 # Let's count the frequencies of each degree
 G.out.degree.histogram <- as.data.frame(table(G.out.degrees))
@@ -314,7 +424,7 @@ ggplot(G.out.degree.histogram, aes(x = G.out.degrees, y = Freq)) +
                      trans = "log10")
 
 ```
-This graph shows a histogram of dependencies count. As we can notice, almost 1M artifacts have at most one dependency. Indeed, 641463 artifacts do not have any dependency. These artifacts are mostly already shipped with their classpath.  They rely on Maven only for deploying the artifacts on the repository, but not for dependency management. Surprisingly, 71% among the top 100 popular artifacts do not have any dependency. 6% more have only one dependency. Finally, 960 artifacts have more than 100 dependencies. Whilst, most of the artifacts with only one dependency use other artifacts belonging to the same group, sometimes even the same release. The later upgrade altogether at once. We suspect them to be different modules belonging to the same maven project.
+This graph shows a histogram of dependencies count. As we can notice, almost 1M artifacts have at most one dependency. Indeed, 641463 artifact do not have any dependency. These artifacts are mostly already shipped with their classpath.  They rely on Maven only for deploying the artifacts on the repository, but not for dependency management. Surprisingly, 71% of top 100 popular artifacts do not have any dependency. 6% more have only one dependency. Finally, 960 artifacts have more than 100 dependency. Whilst, most of the depedency with only one dependency use other artifacts belonging to the same group, sometimes even the same release. The later upgrade altogether at once. We suspect them to be different modules belonging to the same maven project.
 ```{r}
 occur = as.vector(table(data$Dependencies))
 occur = occur/sum(occur)
@@ -326,13 +436,19 @@ x = as.numeric(names(table(data$Dependencies)))
 plot(x, y, log="y", type="l", xlab = "Dependencies (Out-degree)", ylab = "Fraction")
 abline(v=G.out.degree.quantiles[1], col="red")
 abline(v=G.out.degree.quantiles[2], col="blue")
-abline(v=G.out.degree.quantiles[3], col="green")
+abline(v=G.out.degree.quantiles[3], col="green", )
+#occur = as.vector(table(data$TUsages))
+#occur = occur/sum(occur)
+#p = occur/sum(occur)
+#y = rev(cumsum(rev(p)))
+#x = as.numeric(names(table(data$TUsages)))
+#plot(x, y, log="y", type="l", xlab = "Degree", ylab = "Fraction")
 
 ```
 This plot simply shows the percentage of artifacts (y) having a certain number (x) of dependencies. As we can notice, as the number of dependencies increases, the percentage of artifacts decreases.
 
-### in-degree distribution
-In this section, we investigate the dependencies usage.
+## in-degree distribution
+In this section we investigate the dependecies uage.
 A quick overview of the different quantiles of dependencies usage counts is depicted below:
 ```{r}
 G.in.degree.mean <- mean(data$DUsages, na.rm=T)
@@ -348,6 +464,22 @@ g.in.degree.zero <- colSums(G.in.frame==0)
 g.in.degree.one <- colSums(G.in.frame==1)
 
 cat ("\nThere number of elements with no usages and only one usage are respectively", g.in.degree.zero, g.in.degree.one, sep = ", ")
+```
+
+```{r}
+
+# ggplot(G.in.frame, aes(x=data$DUsages))+
+#     geom_histogram(binwidth=.2, colour="black", fill="white") +
+#     xlab("Usages")+
+#     geom_vline(aes(xintercept=G.in.degree.quantiles[1]),   # Ignore NA values for mean
+#                color="red", linetype="dashed", size=1) +
+#     geom_vline(aes(xintercept=G.in.degree.quantiles[2]),   # 
+#                color="blue", linetype="dashed", size=1) +
+#     geom_vline(aes(xintercept=G.in.degree.quantiles[3]),   # 
+#                color="green", linetype="dashed", size=1) +
+#     # scale_x_continuous("Artifacts", trans = "log10") +
+#     scale_y_continuous("Artifacts", trans = "log10" )
+
 ```
 
 ```{r}
@@ -382,12 +514,35 @@ plot(x, y, log="y", type="l", xlab = "Usages", ylab = "Population fraction")
 abline(v=G.in.degree.quantiles[1], col="red")
 abline(v=G.in.degree.quantiles[2], col="blue")
 abline(v=G.in.degree.quantiles[3], col="green")
+#occur = as.vector(table(data$TUsages))
+#occur = occur/sum(occur)
+#p = occur/sum(occur)
+#y = rev(cumsum(rev(p)))
+#x = as.numeric(names(table(data$TUsages)))
+#plot(x, y, log="y", type="l", xlab = "Degree", ylab = "Fraction")
 
 ```
 
-## Projects' usage
+```{r}
+
+# Page Rank Table
+table_pagerank <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, PageRank) %>% slice(1:10)
+print(xtable(table_pagerank, type = "latex"), file = "TexTables/table_pagerank.tex")
+# # Betweenness Centrality Table
+# table_betw_path <- paste(path, "TexTables/table_betw.tex", sep="/")
+# table_betw <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, BetwCentrality) %>% arrange(desc(BetwCentrality)) %>% slice(1:10)
+# print(xtable(table_betw, type = "latex"), file = table_betw_path)
+# # Harmonic Centrality Table
+# table_harm_path <- paste(path,"TexTables/table_harm.tex",sep = "/" )
+# table_harm <- data %>% select(GroupId, ArtifactId, Version, Dependencies, DUsages, TUsages, HarmCentrality) %>% arrange(desc(HarmCentrality)) %>% slice(1:10)
+# print(xtable(table_harm, type = "latex"), file = table_harm_path)
+
+```
+# Projects' usage
 The following figures show the top 10 most used projects both directly and transitively.
 We use the PageRank algorithm score to quantify the popularity. This score can be regarded as a proxy to the transitive usage count of artifacts. 
+
+
 
 ```{r}
 
@@ -432,10 +587,11 @@ datatmp %>%
 
 ```
 # Projects' evolution
-The following plot shows the per-version popularity evolution of the top 5 most used artifacts in Maven:
+The following plot shows the per-version popularity evolution of the top 5 most used artifacts in maven:
 ```{r}
 max <- max(data$PageRank)
 top5 <- c("org.slf4j", "commons-lang", "commons-io" ,"commons-logging", "org.scala-lang")
+#top5 <- data %>% select(GroupId, DUsages) %>% top_n(5,DUsages) %>%select(GroupId)
 data %>%
   select(GroupId, Release, PageRank, Version) %>%
   filter(GroupId %in% top5 ) %>%
@@ -453,14 +609,15 @@ data %>%
 
 ```
 
-The graph shows the usage evolution of the top 5 most influencing in Maven.
+The following plot shows the usage evolution of the top 5 most influencing in Maven.
 As we can notice, apart from the '**org.slf4j**', the most influencing versions per artifacts are intermediate past versions.
 We normalized the PageRank score on a scale of 0 to 1., with zero being the less influencing and 1 the most influencing.
 We also notice that the artifacts with the most influence minor version releases. 
-We can conclude that providing new releases does not result in particular in a chain of upgrades from the transitive users' side.
+We can conclude that providing new releases does not result in particular in a chain of upgrades from the transitive users side.
 ```{r}
 
 top5 <- c("com.google.code.findbugs ", "org.scala-lang", "org.slf4j" ,"javax.inject", "log4j")
+#top5 <- data %>% select(GroupId, DUsages) %>% top_n(5,DUsages) %>%select(GroupId)
 data %>%
   select(GroupId, Release, DUsages, Version) %>%
   filter(GroupId %in% top5 ) %>%
@@ -477,8 +634,29 @@ data %>%
   scale_fill_manual(values=wes_palette(n=3, name="GrandBudapest1"))
 
 ```
-On the contrary to the previous plot, this one shows the evolution of direct usages of the top 5 most influential artifacts.
-We can notice that direct usage and transitive usages have, more or less, the same evolution trends.
+On the contrary to the previous plot, this one shows the evolution of direct usages of top 5 most inflential artifacts.
+We can notice that direct usage and transitive usages has, more or less, the same evolution trends 
+
+
+```{r}
+# data %>%
+#   select(GroupId, Release, PageRank, Version) %>%
+#   filter(GroupId %in% c("org.slf4j", "commons-logging", "asm", "junit", "antlr")) %>%
+#   ggplot(aes(Release, PageRank, color = GroupId, shape = GroupId)) +
+#   geom_line() +
+#   geom_point(size = 2) +
+#   geom_text(
+#     aes(label = ifelse(PageRank > 5, as.character(Version), '')),
+#     hjust = 0,
+#     vjust = 0,
+#     show.legend = FALSE
+#   ) +
+#   xlab("Release Date") +
+#   theme(legend.position = "top") +
+#   # scale_color_manual(values = wes_palette(n = 5, name = "GrandBudapest1")) +
+#   theme(legend.title = element_blank())
+
+```
 
 ```{r}
 
@@ -499,62 +677,28 @@ datatmp %>%
   theme(legend.position="right") +
   scale_fill_brewer(palette="Dark2") +
   ylab("PageRank Factor")  
-
+  #+
+  #scale_fill_manual("legend_title")
 ```
 
 
-## Maven Central Clustering
-In this section we use the Louvain clustering algorithm to identify dependecy clusters in the Maven Central repository. 
+# Maven Central Clustering
+
 ```{r}
-datatmp <- data %>% select(GroupId, ArtifactId, Version, Louvain, PageRank) %>% 
-                    arrange(PageRank) %>%
-                    mutate(Coordinates = paste(GroupId,ArtifactId,Version, sep = ":")) %>%
-                    group_by(Louvain) %>% summarise(size=n(), leader = Coordinates[which.max(PageRank)], PageRank = max(PageRank))
 
-datatmp.isolated <- datatmp %>% filter(size > 1)
+# Union Find
+data$UnionFind <- as.factor(data$UnionFind)
+summary(data$UnionFind)
 
-cat("The Maven Dependency graph is composed of ", dim(datatmp)[1], " communities, including", dim(datatmp.isolated)[1],"containing only one element.\n")
-```
-The following graph shows the Top 15  big clusters in their interactions. The size of the node refers is proportinal with the size of the community. Whilst, the width of the edges is proportional with usages count from one community to another. We use a label for a cluster the coordinates of the most influential node. 
-```{r}
-n <- 15
-dataVertices <- data %>% select(GroupId, ArtifactId, Version, Louvain, PageRank) %>% 
-                    arrange(PageRank) %>%
-                    mutate(Coordinates = paste(GroupId,ArtifactId,Version, sep = ":")) %>%
-                    group_by(Louvain) %>% summarise(size=n(), leader = Coordinates[which.max(PageRank)], PageRank = max(PageRank))%>%
-                    arrange(desc(size)) %>%
-                    slice(1:n)%>%
-                    mutate (Louvain.color = 1:n)
 
-comms <- dataVertices%>%select(Louvain)
+datatmp <- data %>% group_by(UnionFind) %>%
+  summarise(no_artifacts = length(UnionFind))
 
-dataEdges <- full_join(louvain, links_all, setNames('source','artifact'))
-dataEdges <- na.omit(dataEdges)
-colnames(dataEdges) <- c('source', 'comm-source', 'target')
-dataEdges.full<- full_join(dataEdges,louvain, setNames('artifact', 'target'))
-dataEdges.full <- na.omit(dataEdges.full)
-colnames(dataEdges.full) <- c('source', 'sourceComm', 'target', 'targetComm')
-comm.edges <- dataEdges.full %>% group_by(sourceComm, targetComm)%>%
-                                 summarise(count = n())
-comm.edges.chunk <- comm.edges %>% filter(sourceComm %in% t(comms)) %>%
-                                 filter(targetComm %in% t(comms))
+datatmp$no_rows <- as.factor(datatmp$no_artifacts)
+datatmp <- datatmp %>% group_by(no_artifacts) %>%
+  summarise(clusters = length(no_artifacts)) %>%
+  arrange(desc(no_artifacts))
 
-net <- graph_from_data_frame(d=comm.edges.chunk, vertices=dataVertices, directed=TRUE) 
-net <- simplify(net, remove.multiple = F, remove.loops = T) 
-
-V(net)$size <- V(net)$size/5000
-E(net)$width <- E(net)$count/6000
-
-E(net)$arrow.size <- .2
-E(net)$edge.color <- "orange"
-
-palette <- distinctColorPalette(n)
-
-V(net)$color <- palette[V(net)$Louvain.color]
-V(net)$label <- NA
-graph_attr(net, "layout") <- layout_with_lgl
-plot(net) 
-legend(x=-2, y=-1.1, dataVertices$leader, pch=21, col="#777777", pt.bg=palette, pt.cex=2, cex=.7, bty="n", ncol=2)
+print(xtable(datatmp, type = "latex"), file = "TexTables/table_union_find.tex")
 
 ```
-
