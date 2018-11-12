@@ -1,11 +1,11 @@
 
 CALL apoc.export.csv.query("MATCH (n:Artifact) RETURN n.coordinates as artifact, n.release_date as release", "%PATH%/release_all.csv", {});
 
-CALL apoc.export.csv.query("MATCH (n:Artifact)-[:DEPENDS_ON]->(m:Artifact) RETURN n.coordinates AS x, m.coordinates AS y", "%PATH%/links_all.csv", {});
+CALL apoc.export.csv.query("MATCH (n:Artifact)-[:DEPENDS_ON]->(m:Artifact) RETURN n.coordinates AS source, m.coordinates AS target", "%PATH%/links_all.csv", {});
 
-CALL apoc.export.csv.query("MATCH (n) RETURN n.coordinates AS artifact, size((n)<-[:DEPENDS_ON]-()) as direct_usages ORDER BY direct_usages DESC","%PATH%/direct_usages.csv", {});
+CALL apoc.export.csv.query("MATCH (n:Artifact) RETURN n.coordinates AS artifact, size((n)<-[:DEPENDS_ON]-()) as direct_usages ORDER BY direct_usages DESC","%PATH%/direct_usages.csv", {});
 
-CALL apoc.export.csv.query("MATCH (n) RETURN n.coordinates AS artifact, size((n)-[:DEPENDS_ON]->()) as direct_dependencies ORDER BY direct_dependencies DESC","%PATH%/direct_dependencies.csv", {});
+CALL apoc.export.csv.query("MATCH (n:Artifact) RETURN n.coordinates AS artifact, size((n)-[:DEPENDS_ON]->()) as direct_dependencies ORDER BY direct_dependencies DESC","%PATH%/direct_dependencies.csv", {});
 
 //CALL apoc.export.csv.query("MATCH (n:Artifact)<-[:DEPENDS_ON*]-(m:Artifact) RETURN n.coordinates AS artifact, count(m) as transitive_usages ORDER BY transitive_usages DESC","%PATH%/trans_usages.csv", {});
 
